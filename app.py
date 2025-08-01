@@ -34,7 +34,10 @@ def get_browser():
             chrome_options.add_argument("--headless")
             chrome_options.add_argument("--no-sandbox")
             chrome_options.add_argument("--disable-dev-shm-usage")
-            chrome_options.add_argument("--window-size=1920,1080") # Tamanho da tela da TV
+            chrome_options.add_argument("--window-size=1920,1080")
+            # --- CORREÇÃO ADICIONADA AQUI ---
+            # Garante um diretório de dados temporário e isolado para evitar conflitos
+            chrome_options.add_argument("--user-data-dir=/tmp/selenium")
             
             browser = webdriver.Chrome(options=chrome_options)
             
@@ -42,17 +45,22 @@ def get_browser():
             try:
                 print("Tentando fazer login no sistema DKRO...")
                 browser.get("https://sistema.dkro.com.br/Login")
-                time.sleep(3)
-                # ATENÇÃO: Os IDs 'Login' e 'Senha' podem ser diferentes. Verifique no HTML da página.
-                browser.find_element(By.ID, "username").send_keys(DKRO_USER)
-                browser.find_element(By.ID, "password").send_keys(DKRO_PASS)
-                # ATENÇÃO: Encontre o seletor correto para o botão de login.
+                time.sleep(3) 
+                
+                # ATENÇÃO: Verifique se os IDs "username" e "password" estão corretos
+                # na página de login do sistema DKRO.
+                browser.find_element(By.ID, "username").send_keys(DKRO_USER) #
+                browser.find_element(By.ID, "password").send_keys(DKRO_PASS) #
                 browser.find_element(By.XPATH, "//button[@type='submit']").click()
                 print("Login no DKRO efetuado com sucesso.")
                 time.sleep(5)
             except Exception as e:
                 print(f"ERRO CRÍTICO: Falha ao fazer login no DKRO. {e}")
-                # Se o login falhar, o restante não funcionará.
+                # Limpa a instância do navegador em caso de falha no login
+                browser.quit()
+                browser = None
+                # Você pode querer levantar uma exceção aqui para parar a aplicação
+                # se o login for essencial e não puder ser recuperado.
     return browser
 
 # --- Rotas ---
@@ -74,11 +82,14 @@ def get_screenshot():
     if not url_to_capture:
         return "URL não fornecida", 400
 
+    b = None # Inicializa a variável do navegador
     try:
         b = get_browser()
+        if b is None: # Se get_browser falhou em criar uma instância
+            raise Exception("Navegador não pôde ser inicializado.")
+
         print(f"Navegando para: {url_to_capture}")
         b.get(url_to_capture)
-        # Espera um pouco para a página carregar (ajuste se necessário)
         time.sleep(5) 
         
         png_data = b.get_screenshot_as_png()
@@ -86,8 +97,11 @@ def get_screenshot():
         return send_file(io.BytesIO(png_data), mimetype='image/png')
     except Exception as e:
         print(f"Erro ao capturar screenshot de {url_to_capture}: {e}")
-        # Reinicia o navegador em caso de erro grave
+        # --- CORREÇÃO ADICIONADA AQUI ---
+        # Garante que o navegador seja encerrado antes de ser reiniciado
         global browser
+        if b is not None:
+            b.quit() # Encerra o processo do navegador
         browser = None
         return "Erro ao gerar screenshot", 500
 

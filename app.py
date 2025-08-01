@@ -1,4 +1,4 @@
-# app.py (Versão Corrigida)
+# app.py (Versão Final com Melhor Log de Erro)
 import os
 import time
 import io
@@ -10,6 +10,7 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from threading import Lock, Thread
+import traceback # Importe a biblioteca de traceback
 
 # --- Configuração ---
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
@@ -45,7 +46,6 @@ def initialize_browser():
         temp_browser.get("https://sistema.dkro.com.br/Login")
         wait = WebDriverWait(temp_browser, 20)
         
-        # ATENÇÃO: Confirme os seletores corretos para a página de login
         wait.until(EC.visibility_of_element_located((By.ID, "username"))).send_keys(DKRO_USER)
         wait.until(EC.visibility_of_element_located((By.ID, "password"))).send_keys(DKRO_PASS)
         wait.until(EC.element_to_be_clickable((By.XPATH, "//button[@type='submit']"))).click()
@@ -57,10 +57,17 @@ def initialize_browser():
             browser = temp_browser
             
     except Exception as e:
-        print(f"ERRO CRÍTICO NA INICIALIZAÇÃO: Não foi possível fazer login. Erro: {e}")
+        # --- MUDANÇA IMPORTANTE AQUI ---
+        # Imprime o erro completo para sabermos exatamente o que falhou
+        print("--- ERRO CRÍTICO NA INICIALIZAÇÃO ---")
+        print(f"Não foi possível fazer login. A aplicação não funcionará.")
+        print(f"Erro: {e}")
+        print("--- Stacktrace do Erro ---")
+        traceback.print_exc() # Imprime o traceback detalhado do erro
+        print("--------------------------")
         temp_browser.quit()
 
-# --- Rotas ---
+# --- Rotas (O resto do código permanece o mesmo) ---
 @app.route('/')
 def index():
     return render_template('index.html')
@@ -72,8 +79,6 @@ def api_config():
 
 @app.route('/screenshot')
 def get_screenshot():
-    # --- CORREÇÃO APLICADA AQUI ---
-    # Declaramos que vamos usar a variável global no início da função
     global browser 
     
     url_to_capture = request.args.get('url')
@@ -98,10 +103,10 @@ def get_screenshot():
             print(f"ERRO DURANTE CAPTURA: Falha ao tirar screenshot de {url_to_capture}. Reiniciando navegador. Erro: {e}")
             if browser:
                 browser.quit()
-            browser = None # Marca o navegador como "quebrado" para ser reiniciado
+            browser = None
             return "Erro ao gerar screenshot, tente novamente.", 500
 
-# Suas rotas /admin (copie e cole seu código aqui se estiver faltando)
+# Suas rotas /admin
 @app.route('/admin')
 def admin():
     try:
@@ -123,8 +128,7 @@ def delete_dashboard(dashboard_id):
     supabase.table('dashboards').delete().eq('id', dashboard_id).execute()
     return redirect(url_for('admin'))
 
-
-# Inicializa o navegador em segundo plano para não travar o servidor
+# Inicializa o navegador em segundo plano
 init_thread = Thread(target=initialize_browser)
 init_thread.daemon = True
 init_thread.start()

@@ -1,4 +1,4 @@
-# app.py (Versão Final e Robusta)
+# app.py (Versão Corrigida)
 import os
 import time
 import io
@@ -9,7 +9,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from threading import Lock
+from threading import Lock, Thread
 
 # --- Configuração ---
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
@@ -28,10 +28,7 @@ browser = None
 browser_lock = Lock()
 
 def initialize_browser():
-    """
-    Inicializa o navegador e faz o login uma única vez.
-    Se falhar, a aplicação não deve continuar.
-    """
+    """Inicializa o navegador e faz o login uma única vez."""
     global browser
     print("Tentando inicializar o navegador e fazer login...")
     
@@ -48,28 +45,19 @@ def initialize_browser():
         temp_browser.get("https://sistema.dkro.com.br/Login")
         wait = WebDriverWait(temp_browser, 20)
         
-        # ATENÇÃO: Confirme os seletores corretos para a página de login.
-        # Use o "Inspecionar Elemento" do seu navegador.
-        user_field = wait.until(EC.visibility_of_element_located((By.ID, "username")))
-        user_field.send_keys(DKRO_USER)
+        # ATENÇÃO: Confirme os seletores corretos para a página de login
+        wait.until(EC.visibility_of_element_located((By.ID, "username"))).send_keys(DKRO_USER)
+        wait.until(EC.visibility_of_element_located((By.ID, "password"))).send_keys(DKRO_PASS)
+        wait.until(EC.element_to_be_clickable((By.XPATH, "//button[@type='submit']"))).click()
         
-        pass_field = wait.until(EC.visibility_of_element_located((By.ID, "password")))
-        pass_field.send_keys(DKRO_PASS)
-        
-        # Tente usar um seletor mais específico se o 'type=submit' falhar
-        login_button = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[@type='submit']")))
-        login_button.click()
-        
-        # Pequena espera para garantir o processamento do login
         time.sleep(5) 
         print("SUCESSO: Navegador inicializado e login efetuado.")
         
-        # Atribui à variável global somente se tudo deu certo
         with browser_lock:
             browser = temp_browser
             
     except Exception as e:
-        print(f"ERRO CRÍTICO NA INICIALIZAÇÃO: Não foi possível fazer login. A aplicação não funcionará. Erro: {e}")
+        print(f"ERRO CRÍTICO NA INICIALIZAÇÃO: Não foi possível fazer login. Erro: {e}")
         temp_browser.quit()
 
 # --- Rotas ---
@@ -84,6 +72,10 @@ def api_config():
 
 @app.route('/screenshot')
 def get_screenshot():
+    # --- CORREÇÃO APLICADA AQUI ---
+    # Declaramos que vamos usar a variável global no início da função
+    global browser 
+    
     url_to_capture = request.args.get('url')
     if not url_to_capture:
         return "URL não fornecida", 400
@@ -96,8 +88,7 @@ def get_screenshot():
         try:
             print(f"Navegando para capturar: {url_to_capture}")
             browser.get(url_to_capture)
-            # Aumente este tempo se as páginas demorarem para carregar
-            time.sleep(7) 
+            time.sleep(7)
             
             png_data = browser.get_screenshot_as_png()
             print(f"Screenshot de '{url_to_capture}' capturado com sucesso.")
@@ -105,19 +96,35 @@ def get_screenshot():
             
         except Exception as e:
             print(f"ERRO DURANTE CAPTURA: Falha ao tirar screenshot de {url_to_capture}. Reiniciando navegador. Erro: {e}")
-            # Se der erro aqui, força a recriação do navegador na próxima vez
-            global browser
-            browser.quit()
-            browser = None
+            if browser:
+                browser.quit()
+            browser = None # Marca o navegador como "quebrado" para ser reiniciado
             return "Erro ao gerar screenshot, tente novamente.", 500
 
-# Adicione suas rotas /admin aqui (código idêntico)
-# ...
+# Suas rotas /admin (copie e cole seu código aqui se estiver faltando)
+@app.route('/admin')
+def admin():
+    try:
+        response = supabase.table('dashboards').select("*").order('id').execute()
+        return render_template('admin.html', dashboards=response.data)
+    except Exception as e:
+        return render_template('admin.html', dashboards=[], error=f"Falha ao carregar: {e}")
 
-# Inicializa o navegador em uma thread separada para não bloquear o boot da aplicação
-from threading import Thread
+@app.route('/admin/add', methods=['POST'])
+def add_dashboard():
+    url = request.form.get('url')
+    duration = request.form.get('duration')
+    if url and duration:
+        supabase.table('dashboards').insert({'url': url, 'duration': int(duration)}).execute()
+    return redirect(url_for('admin'))
+
+@app.route('/admin/delete/<int:dashboard_id>', methods=['POST'])
+def delete_dashboard(dashboard_id):
+    supabase.table('dashboards').delete().eq('id', dashboard_id).execute()
+    return redirect(url_for('admin'))
+
+
+# Inicializa o navegador em segundo plano para não travar o servidor
 init_thread = Thread(target=initialize_browser)
 init_thread.daemon = True
 init_thread.start()
-
-# O if __name__ == '__main__' é usado para testes locais, não para o Gunicorn

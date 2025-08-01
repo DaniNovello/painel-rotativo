@@ -1,29 +1,15 @@
+# render.yaml (Versão Corrigida)
 services:
   - type: web
-    name: painel-rotativo
+    name: painel-rotativo # O nome do seu serviço na Render
     env: python
-    buildCommand: "./build.sh"
+    buildCommand: "bash build.sh"
     startCommand: "gunicorn app:app"
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.4
+      # As chaves abaixo serão preenchidas por você no painel da Render
       - key: SUPABASE_URL
-        fromService:
-          type: external
-          name: supabase-credentials
-          envVarKey: SUPABASE_URL
       - key: SUPABASE_KEY
-        fromService:
-          type: external
-          name: supabase-credentials
-          envVarKey: SUPABASE_KEY
       - key: DKRO_USER
-        fromService:
-          type: external
-          name: dkro-credentials
-          envVarKey: DKRO_USER
       - key: DKRO_PASS
-        fromService:
-          type: external
-          name: dkro-credentials
-          envVarKey: DKRO_PASS

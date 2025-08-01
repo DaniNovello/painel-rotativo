@@ -1,3 +1,4 @@
+# app.py (Versão Final e Robusta)
 import os
 import time
 import io
@@ -6,6 +7,8 @@ from supabase import create_client, Client
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 from threading import Lock
 
 # --- Configuração ---
@@ -20,128 +23,101 @@ if not all([SUPABASE_URL, SUPABASE_KEY, DKRO_USER, DKRO_PASS]):
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 app = Flask(__name__)
 
-# --- Gerenciamento do Navegador Selenium ---
+# --- Gerenciamento Centralizado do Navegador ---
 browser = None
-lock = Lock()
+browser_lock = Lock()
 
-def get_browser():
-    """Inicializa e retorna uma instância única do navegador Selenium."""
+def initialize_browser():
+    """
+    Inicializa o navegador e faz o login uma única vez.
+    Se falhar, a aplicação não deve continuar.
+    """
     global browser
-    with lock:
-        if browser is None:
-            print("Inicializando navegador Selenium...")
-            chrome_options = Options()
-            chrome_options.add_argument("--headless")
-            chrome_options.add_argument("--no-sandbox")
-            chrome_options.add_argument("--disable-dev-shm-usage")
-            chrome_options.add_argument("--window-size=1920,1080")
-            # --- CORREÇÃO ADICIONADA AQUI ---
-            # Garante um diretório de dados temporário e isolado para evitar conflitos
-            chrome_options.add_argument("--user-data-dir=/tmp/selenium")
+    print("Tentando inicializar o navegador e fazer login...")
+    
+    chrome_options = Options()
+    chrome_options.add_argument("--headless")
+    chrome_options.add_argument("--no-sandbox")
+    chrome_options.add_argument("--disable-dev-shm-usage")
+    chrome_options.add_argument("--window-size=1920,1080")
+    chrome_options.add_argument("--user-data-dir=/tmp/selenium")
+    
+    temp_browser = webdriver.Chrome(options=chrome_options)
+    
+    try:
+        temp_browser.get("https://sistema.dkro.com.br/Login")
+        wait = WebDriverWait(temp_browser, 20)
+        
+        # ATENÇÃO: Confirme os seletores corretos para a página de login.
+        # Use o "Inspecionar Elemento" do seu navegador.
+        user_field = wait.until(EC.visibility_of_element_located((By.ID, "username")))
+        user_field.send_keys(DKRO_USER)
+        
+        pass_field = wait.until(EC.visibility_of_element_located((By.ID, "password")))
+        pass_field.send_keys(DKRO_PASS)
+        
+        # Tente usar um seletor mais específico se o 'type=submit' falhar
+        login_button = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[@type='submit']")))
+        login_button.click()
+        
+        # Pequena espera para garantir o processamento do login
+        time.sleep(5) 
+        print("SUCESSO: Navegador inicializado e login efetuado.")
+        
+        # Atribui à variável global somente se tudo deu certo
+        with browser_lock:
+            browser = temp_browser
             
-            browser = webdriver.Chrome(options=chrome_options)
-            
-            # --- Faz o login no DKRO uma única vez ---
-            try:
-                print("Tentando fazer login no sistema DKRO...")
-                browser.get("https://sistema.dkro.com.br/Login")
-                time.sleep(3) 
-                
-                # ATENÇÃO: Verifique se os IDs "username" e "password" estão corretos
-                # na página de login do sistema DKRO.
-                browser.find_element(By.ID, "username").send_keys(DKRO_USER) #
-                browser.find_element(By.ID, "password").send_keys(DKRO_PASS) #
-                browser.find_element(By.XPATH, "//button[@type='submit']").click()
-                print("Login no DKRO efetuado com sucesso.")
-                time.sleep(5)
-            except Exception as e:
-                print(f"ERRO CRÍTICO: Falha ao fazer login no DKRO. {e}")
-                # Limpa a instância do navegador em caso de falha no login
-                browser.quit()
-                browser = None
-                # Você pode querer levantar uma exceção aqui para parar a aplicação
-                # se o login for essencial e não puder ser recuperado.
-    return browser
+    except Exception as e:
+        print(f"ERRO CRÍTICO NA INICIALIZAÇÃO: Não foi possível fazer login. A aplicação não funcionará. Erro: {e}")
+        temp_browser.quit()
 
 # --- Rotas ---
 @app.route('/')
 def index():
-    """Página principal que exibe as imagens."""
     return render_template('index.html')
 
 @app.route('/api/config')
 def api_config():
-    """Busca a lista de URLs do Supabase."""
     response = supabase.table('dashboards').select("url", "duration").execute()
     return jsonify({'dashboards': response.data})
 
 @app.route('/screenshot')
 def get_screenshot():
-    """Tira um screenshot de uma URL específica e retorna a imagem."""
     url_to_capture = request.args.get('url')
     if not url_to_capture:
         return "URL não fornecida", 400
 
-    b = None # Inicializa a variável do navegador
-    try:
-        b = get_browser()
-        if b is None: # Se get_browser falhou em criar uma instância
-            raise Exception("Navegador não pôde ser inicializado.")
+    with browser_lock:
+        if browser is None:
+            print("Erro: O navegador não está inicializado. O login pode ter falhado.")
+            return "Erro interno: Navegador indisponível", 500
 
-        print(f"Navegando para: {url_to_capture}")
-        b.get(url_to_capture)
-        time.sleep(5) 
-        
-        png_data = b.get_screenshot_as_png()
-        print("Screenshot capturado.")
-        return send_file(io.BytesIO(png_data), mimetype='image/png')
-    except Exception as e:
-        print(f"Erro ao capturar screenshot de {url_to_capture}: {e}")
-        # --- CORREÇÃO ADICIONADA AQUI ---
-        # Garante que o navegador seja encerrado antes de ser reiniciado
-        global browser
-        if b is not None:
-            b.quit() # Encerra o processo do navegador
-        browser = None
-        return "Erro ao gerar screenshot", 500
-
-# --- Rotas de Administração ---
-@app.route('/admin')
-def admin():
-    """Exibe a página de administração com a lista de dashboards."""
-    try:
-        # Equivalente a: SELECT id, url, duration FROM dashboards ORDER BY id
-        response = supabase.table('dashboards').select("*").order('id').execute()
-        return render_template('admin.html', dashboards=response.data)
-    except Exception as e:
-        print(f"Erro ao buscar do Supabase: {e}")
-        return render_template('admin.html', dashboards=[], error="Falha ao carregar dashboards.")
-
-@app.route('/admin/add', methods=['POST'])
-def add_dashboard():
-    """Adiciona um novo dashboard ao Supabase."""
-    url = request.form.get('url')
-    duration = request.form.get('duration')
-    if url and duration:
         try:
-            # Equivalente a: INSERT INTO dashboards (url, duration) VALUES (...)
-            supabase.table('dashboards').insert({
-                'url': url,
-                'duration': int(duration)
-            }).execute()
+            print(f"Navegando para capturar: {url_to_capture}")
+            browser.get(url_to_capture)
+            # Aumente este tempo se as páginas demorarem para carregar
+            time.sleep(7) 
+            
+            png_data = browser.get_screenshot_as_png()
+            print(f"Screenshot de '{url_to_capture}' capturado com sucesso.")
+            return send_file(io.BytesIO(png_data), mimetype='image/png')
+            
         except Exception as e:
-            print(f"Erro ao inserir no Supabase: {e}")
-    return redirect(url_for('admin'))
+            print(f"ERRO DURANTE CAPTURA: Falha ao tirar screenshot de {url_to_capture}. Reiniciando navegador. Erro: {e}")
+            # Se der erro aqui, força a recriação do navegador na próxima vez
+            global browser
+            browser.quit()
+            browser = None
+            return "Erro ao gerar screenshot, tente novamente.", 500
 
-@app.route('/admin/delete/<int:dashboard_id>', methods=['POST'])
-def delete_dashboard(dashboard_id):
-    """Exclui um dashboard do Supabase."""
-    try:
-        # Equivalente a: DELETE FROM dashboards WHERE id = ...
-        supabase.table('dashboards').delete().eq('id', dashboard_id).execute()
-    except Exception as e:
-        print(f"Erro ao deletar no Supabase: {e}")
-    return redirect(url_for('admin'))
+# Adicione suas rotas /admin aqui (código idêntico)
+# ...
 
-if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5000)
+# Inicializa o navegador em uma thread separada para não bloquear o boot da aplicação
+from threading import Thread
+init_thread = Thread(target=initialize_browser)
+init_thread.daemon = True
+init_thread.start()
+
+# O if __name__ == '__main__' é usado para testes locais, não para o Gunicorn

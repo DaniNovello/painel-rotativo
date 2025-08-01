@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Painel Rotativo de Dashboards</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="iframe-container">
+        <iframe id="dashboard-frame" src="about:blank" frameborder="0"></iframe>
+    </div>
+
+    <div id="info-overlay">
+        <p id="info-text">Iniciando painel...</p>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            // Elementos da página
+            const iframe = document.getElementById('dashboard-frame');
+            const infoText = document.getElementById('info-text');
+
+            // Variáveis de controle
+            let dashboards = [];
+            let currentIndex = 0;
+
+            // Função para carregar um dashboard no iframe
+            function loadDashboard(index) {
+                if (dashboards.length === 0) {
+                    infoText.textContent = 'Nenhum dashboard configurado.';
+                    return;
+                }
+
+                // Garante que o índice seja válido
+                currentIndex = index % dashboards.length;
+                const dashboard = dashboards[currentIndex];
+
+                console.log(`Carregando: ${dashboard.url} por ${dashboard.duration}s`);
+                infoText.textContent = `Próxima troca em ${dashboard.duration}s. Carregando: ${dashboard.url}`;
+                iframe.src = dashboard.url;
+
+                // Calcula o próximo índice para o ciclo
+                const nextIndex = (currentIndex + 1) % dashboards.length;
+
+                // Agenda a próxima troca
+                setTimeout(() => loadDashboard(nextIndex), dashboard.duration * 1000);
+            }
+
+            // Função para buscar a configuração da API do backend
+            async function fetchConfigAndStart() {
+                try {
+                    const response = await fetch('/api/config');
+                    if (!response.ok) {
+                        throw new Error(`Erro ao buscar configuração: ${response.statusText}`);
+                    }
+                    const config = await response.json();
+                    
+                    if (config.dashboards && config.dashboards.length > 0) {
+                        dashboards = config.dashboards;
+                        // Inicia o ciclo
+                        loadDashboard(0);
+                    } else {
+                        infoText.textContent = 'Configuração de dashboards vazia ou inválida.';
+                    }
+                } catch (error) {
+                    console.error('Falha ao iniciar o painel:', error);
+                    infoText.textContent = `Erro ao carregar configuração. Verifique o console.`;
+                }
+            }
+
+            // Inicia todo o processo
+            fetchConfigAndStart();
+        });
+    </script>
+</body>
+</html>

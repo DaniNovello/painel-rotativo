@@ -1,4 +1,4 @@
-# app.py (Versão Final com Melhor Log de Erro)
+# app.py (Versão com Seletores Corretos)
 import os
 import time
 import io
@@ -10,7 +10,7 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from threading import Lock, Thread
-import traceback # Importe a biblioteca de traceback
+import traceback
 
 # --- Configuração ---
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
@@ -46,25 +46,31 @@ def initialize_browser():
         temp_browser.get("https://sistema.dkro.com.br/Login")
         wait = WebDriverWait(temp_browser, 20)
         
+        # --- SELETORES CORRIGIDOS COM BASE NAS SUAS IMAGENS ---
+        # Campo de usuário com id="username"
         wait.until(EC.visibility_of_element_located((By.ID, "username"))).send_keys(DKRO_USER)
-        wait.until(EC.visibility_of_element_located((By.ID, "password"))).send_keys(DKRO_PASS)
-        wait.until(EC.element_to_be_clickable((By.XPATH, "//button[@type='submit']"))).click()
         
-        time.sleep(5) 
+        # Campo de senha com id="password"
+        wait.until(EC.visibility_of_element_located((By.ID, "password"))).send_keys(DKRO_PASS)
+        
+        # Botão de login (que é um div) pela sua classe
+        login_button = wait.until(EC.element_to_be_clickable((By.CLASS_NAME, "dtn-submit")))
+        login_button.click()
+        
+        time.sleep(8) 
+        
+        if "Login" in temp_browser.current_url:
+            raise Exception("Login falhou, ainda estamos na página de Login. Verifique usuário e senha.")
+        
         print("SUCESSO: Navegador inicializado e login efetuado.")
         
         with browser_lock:
             browser = temp_browser
             
     except Exception as e:
-        # --- MUDANÇA IMPORTANTE AQUI ---
-        # Imprime o erro completo para sabermos exatamente o que falhou
         print("--- ERRO CRÍTICO NA INICIALIZAÇÃO ---")
         print(f"Não foi possível fazer login. A aplicação não funcionará.")
-        print(f"Erro: {e}")
-        print("--- Stacktrace do Erro ---")
-        traceback.print_exc() # Imprime o traceback detalhado do erro
-        print("--------------------------")
+        traceback.print_exc()
         temp_browser.quit()
 
 # --- Rotas (O resto do código permanece o mesmo) ---
@@ -79,7 +85,7 @@ def api_config():
 
 @app.route('/screenshot')
 def get_screenshot():
-    global browser 
+    global browser
     
     url_to_capture = request.args.get('url')
     if not url_to_capture:
@@ -91,36 +97,29 @@ def get_screenshot():
             return "Erro interno: Navegador indisponível", 500
 
         try:
-            print(f"Navegando para capturar: {url_to_capture}")
             browser.get(url_to_capture)
             time.sleep(7)
-            
             png_data = browser.get_screenshot_as_png()
-            print(f"Screenshot de '{url_to_capture}' capturado com sucesso.")
             return send_file(io.BytesIO(png_data), mimetype='image/png')
             
         except Exception as e:
-            print(f"ERRO DURANTE CAPTURA: Falha ao tirar screenshot de {url_to_capture}. Reiniciando navegador. Erro: {e}")
+            print(f"ERRO DURANTE CAPTURA: {e}")
             if browser:
                 browser.quit()
             browser = None
-            return "Erro ao gerar screenshot, tente novamente.", 500
+            return "Erro ao gerar screenshot", 500
 
 # Suas rotas /admin
 @app.route('/admin')
 def admin():
-    try:
-        response = supabase.table('dashboards').select("*").order('id').execute()
-        return render_template('admin.html', dashboards=response.data)
-    except Exception as e:
-        return render_template('admin.html', dashboards=[], error=f"Falha ao carregar: {e}")
+    response = supabase.table('dashboards').select("*").order('id').execute()
+    return render_template('admin.html', dashboards=response.data)
 
 @app.route('/admin/add', methods=['POST'])
 def add_dashboard():
     url = request.form.get('url')
     duration = request.form.get('duration')
-    if url and duration:
-        supabase.table('dashboards').insert({'url': url, 'duration': int(duration)}).execute()
+    supabase.table('dashboards').insert({'url': url, 'duration': int(duration)}).execute()
     return redirect(url_for('admin'))
 
 @app.route('/admin/delete/<int:dashboard_id>', methods=['POST'])

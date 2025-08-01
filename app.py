@@ -44,8 +44,8 @@ def get_browser():
                 browser.get("https://sistema.dkro.com.br/Login")
                 time.sleep(3)
                 # ATENÇÃO: Os IDs 'Login' e 'Senha' podem ser diferentes. Verifique no HTML da página.
-                browser.find_element(By.ID, "Login").send_keys(DKRO_USER)
-                browser.find_element(By.ID, "Senha").send_keys(DKRO_PASS)
+                browser.find_element(By.ID, "username").send_keys(DKRO_USER)
+                browser.find_element(By.ID, "password").send_keys(DKRO_PASS)
                 # ATENÇÃO: Encontre o seletor correto para o botão de login.
                 browser.find_element(By.XPATH, "//button[@type='submit']").click()
                 print("Login no DKRO efetuado com sucesso.")
@@ -128,6 +128,6 @@ def delete_dashboard(dashboard_id):
     except Exception as e:
         print(f"Erro ao deletar no Supabase: {e}")
     return redirect(url_for('admin'))
-    
+
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000)

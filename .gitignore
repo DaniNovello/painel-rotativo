@@ -1,0 +1,9 @@
+# .gitignore
+
+# Ambientes virtuais
+venv/
+.venv/
+
+# Arquivos de cache do Python
+__pycache__/
+*.pyc
